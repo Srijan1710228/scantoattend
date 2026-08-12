@@ -52,8 +52,7 @@ export async function getRows(sheetName: string): Promise<any[][]> {
     return response.data.values || [];
   } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
     console.error(`Google Sheets Read Error (${sheetName}):`, err.message);
-    // Return empty array instead of failing, to let local fallbacks work if config is missing
-    return [];
+    throw err;
   }
 }
 
