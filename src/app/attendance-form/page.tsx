@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -73,7 +74,17 @@ type LocationStatus =
   | "denied"
   | "unavailable";
 
-export default function AttendanceFormPage() {
+type ValidationStatus = "loading" | "valid" | "expired" | "invalid" | "no_token";
+
+function AttendanceFormBody() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
+
+  // Session validation state
+  const [validationStatus, setValidationStatus] = React.useState<ValidationStatus>("loading");
+  const [sessionTitle, setSessionTitle] = React.useState("");
+
+  // Location state
   const [coords, setCoords] = React.useState<{ lat: number; lng: number } | null>(null);
   const [distance, setDistance] = React.useState<number | null>(null);
   const [locationStatus, setLocationStatus] = React.useState<LocationStatus>("idle");
@@ -83,7 +94,6 @@ export default function AttendanceFormPage() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<AttendanceFormData>({
     resolver: zodResolver(attendanceSchema),
@@ -94,6 +104,36 @@ export default function AttendanceFormPage() {
       registerNo: "",
     },
   });
+
+  // Validate the token on load
+  React.useEffect(() => {
+    if (!token) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setValidationStatus("no_token");
+      return;
+    }
+
+    const validateToken = async () => {
+      try {
+        const response = await fetch(`/api/sessions/validate?token=${encodeURIComponent(token)}`);
+        const data = await response.json();
+
+        if (response.ok && data.valid) {
+          setValidationStatus("valid");
+          setSessionTitle(data.session.title);
+        } else if (data.code === "SESSION_EXPIRED") {
+          setValidationStatus("expired");
+        } else {
+          setValidationStatus("invalid");
+        }
+      } catch (err) {
+        console.error("Token validation error:", err);
+        setValidationStatus("invalid");
+      }
+    };
+
+    validateToken();
+  }, [token]);
 
   // Request user geo-location
   const requestLocation = React.useCallback(() => {
@@ -138,8 +178,11 @@ export default function AttendanceFormPage() {
 
   // Fetch location automatically on load
   React.useEffect(() => {
-    requestLocation();
-  }, [requestLocation]);
+    if (validationStatus === "valid") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      requestLocation();
+    }
+  }, [validationStatus, requestLocation]);
 
   const onSubmit = async (data: AttendanceFormData) => {
     if (!coords) {
@@ -148,7 +191,7 @@ export default function AttendanceFormPage() {
       return;
     }
 
-    const todayDateStr = "2026-10-25"; // Day 1 date
+    const todayDateStr = new Date().toISOString().split("T")[0];
 
     // 0. Strict check: verify if this email OR register number has already marked attendance for today
     const allRegs = getRegistrations();
@@ -179,7 +222,6 @@ export default function AttendanceFormPage() {
       });
       toast.success("New registration added!");
     } else {
-      // update email/domain if changed/needed or verify compatibility
       if (existing.email.toLowerCase() !== data.email.toLowerCase()) {
         toast.error("Register number belongs to a different email address!");
         return;
@@ -210,7 +252,93 @@ export default function AttendanceFormPage() {
     }
   };
 
-  // Success state view
+  // 1. Loading State
+  if (validationStatus === "loading") {
+    return (
+      <SectionWrapper
+        withWatermark
+        className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center text-brand-white"
+      >
+        <div className="text-center font-display text-xl uppercase tracking-wider animate-pulse">
+          Verifying Attendance Session...
+        </div>
+      </SectionWrapper>
+    );
+  }
+
+  // 2. No Token State
+  if (validationStatus === "no_token") {
+    return (
+      <SectionWrapper
+        withWatermark
+        className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center text-brand-white"
+      >
+        <div className="relative w-full max-w-lg mx-auto bg-brand-black/40 backdrop-blur-md border border-brand-muted/20 p-8 rounded-2xl shadow-2xl text-center flex flex-col items-center gap-6 overflow-hidden">
+          <div className="w-16 h-16 rounded-full bg-brand-red/10 flex items-center justify-center border border-brand-red/30">
+            <span className="text-brand-red text-2xl font-bold">!</span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-display uppercase tracking-tight mb-2 text-brand-red">
+              Please scan a valid attendance QR code.
+            </h1>
+            <p className="text-brand-muted text-sm max-w-sm mx-auto">
+              This check-in form requires an active session token. Please scan the QR code projected or presented by your administrator.
+            </p>
+          </div>
+        </div>
+      </SectionWrapper>
+    );
+  }
+
+  // 3. Expired State
+  if (validationStatus === "expired") {
+    return (
+      <SectionWrapper
+        withWatermark
+        className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center text-brand-white"
+      >
+        <div className="relative w-full max-w-lg mx-auto bg-brand-black/40 backdrop-blur-md border border-brand-muted/20 p-8 rounded-2xl shadow-2xl text-center flex flex-col items-center gap-6 overflow-hidden">
+          <div className="w-16 h-16 rounded-full bg-brand-red/10 flex items-center justify-center border border-brand-red/30">
+            <span className="text-brand-red text-2xl font-bold">!</span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-display uppercase tracking-tight mb-2 text-brand-red">
+              ATTENDANCE SESSION EXPIRED
+            </h1>
+            <p className="text-brand-muted text-sm max-w-sm mx-auto">
+              Please contact your administrator to generate a new active QR code.
+            </p>
+          </div>
+        </div>
+      </SectionWrapper>
+    );
+  }
+
+  // 4. Invalid State
+  if (validationStatus === "invalid") {
+    return (
+      <SectionWrapper
+        withWatermark
+        className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center text-brand-white"
+      >
+        <div className="relative w-full max-w-lg mx-auto bg-brand-black/40 backdrop-blur-md border border-brand-muted/20 p-8 rounded-2xl shadow-2xl text-center flex flex-col items-center gap-6 overflow-hidden">
+          <div className="w-16 h-16 rounded-full bg-brand-red/10 flex items-center justify-center border border-brand-red/30">
+            <span className="text-brand-red text-2xl font-bold">X</span>
+          </div>
+          <div>
+            <h1 className="text-3xl font-display uppercase tracking-tight mb-2 text-brand-red">
+              INVALID ATTENDANCE QR
+            </h1>
+            <p className="text-brand-muted text-sm max-w-sm mx-auto">
+              The check-in code was not recognized or is corrupted. Please scan a valid session QR.
+            </p>
+          </div>
+        </div>
+      </SectionWrapper>
+    );
+  }
+
+  // 5. Success State after Form Submission
   if (submittedId) {
     return (
       <SectionWrapper
@@ -232,7 +360,7 @@ export default function AttendanceFormPage() {
               {submittedId}
             </p>
             <p className="text-brand-muted text-base max-w-sm mx-auto">
-              Thank you, <strong className="text-brand-white">{submittedName}</strong>! Your attendance is recorded for Day 1 of IEEE AICSSYC 2026.
+              Thank you, <strong className="text-brand-white">{submittedName}</strong>! Your attendance is recorded for <strong className="text-brand-lime">{sessionTitle}</strong>.
             </p>
           </div>
 
@@ -246,21 +374,24 @@ export default function AttendanceFormPage() {
     );
   }
 
+  // 6. Normal Active Form view
   return (
     <SectionWrapper
       withWatermark
       className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center"
     >
       <div className="relative w-full max-w-lg mx-auto bg-brand-black/40 backdrop-blur-md border border-brand-muted/20 p-8 rounded-2xl shadow-2xl flex flex-col gap-8 overflow-hidden group">
-        {/* Glow effect */}
         <div className="absolute -top-40 -left-40 w-80 h-80 bg-brand-lime/5 rounded-full blur-[100px] pointer-events-none" />
 
         <div className="text-center">
+          <p className="text-brand-lime font-bold uppercase tracking-widest text-xs mb-1">
+            Attendance Session Active
+          </p>
           <h1 className="text-3xl md:text-4xl font-display uppercase tracking-tight mb-2 text-brand-white">
-            Attendance Check-in
+            {sessionTitle}
           </h1>
           <p className="text-brand-muted text-sm max-w-sm mx-auto">
-            Please enter your registration details. Your location will be verified against the venue coords.
+            Please enter your registration details. Your location will be verified against the venue.
           </p>
         </div>
 
@@ -324,7 +455,6 @@ export default function AttendanceFormPage() {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
-          {/* Full Name */}
           <Field label="Full Name *" error={errors.name?.message}>
             <input
               {...register("name")}
@@ -335,7 +465,6 @@ export default function AttendanceFormPage() {
             />
           </Field>
 
-          {/* Email Address */}
           <Field label="Email Address *" error={errors.email?.message}>
             <input
               {...register("email")}
@@ -346,7 +475,6 @@ export default function AttendanceFormPage() {
             />
           </Field>
 
-          {/* Domain */}
           <Field label="Domain (Track/Department) *" error={errors.domain?.message}>
             <input
               {...register("domain")}
@@ -357,7 +485,6 @@ export default function AttendanceFormPage() {
             />
           </Field>
 
-          {/* Register No */}
           <Field label="Register No (Participant ID) *" error={errors.registerNo?.message}>
             <input
               {...register("registerNo")}
@@ -379,5 +506,22 @@ export default function AttendanceFormPage() {
         </form>
       </div>
     </SectionWrapper>
+  );
+}
+
+export default function AttendanceFormPage() {
+  return (
+    <React.Suspense fallback={
+      <SectionWrapper
+        withWatermark
+        className="pt-20 md:pt-32 pb-20 min-h-[85vh] flex items-center justify-center text-brand-white"
+      >
+        <div className="text-center font-display text-xl uppercase tracking-wider animate-pulse">
+          Loading Page...
+        </div>
+      </SectionWrapper>
+    }>
+      <AttendanceFormBody />
+    </React.Suspense>
   );
 }

@@ -57,12 +57,20 @@ const SEED_REGISTRATIONS: Registration[] = [
 const REGISTRATIONS_KEY = "aicssyc_registrations";
 const ATTENDANCE_KEY    = "aicssyc_attendance";
 
+// Node-safe server global fallbacks for dev server process
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const g = (typeof global !== "undefined" ? global : {}) as any;
+g.scantoattend_registrations = g.scantoattend_registrations || [...SEED_REGISTRATIONS];
+g.scantoattend_attendance = g.scantoattend_attendance || [];
+g.scantoattend_members = g.scantoattend_members || [];
+g.scantoattend_meetings = g.scantoattend_meetings || [];
+
 function isBrowser(): boolean {
   return typeof window !== "undefined";
 }
 
 function loadRegistrations(): Registration[] {
-  if (!isBrowser()) return [...SEED_REGISTRATIONS];
+  if (!isBrowser()) return g.scantoattend_registrations;
   try {
     const raw = localStorage.getItem(REGISTRATIONS_KEY);
     if (raw) return JSON.parse(raw) as Registration[];
@@ -73,7 +81,7 @@ function loadRegistrations(): Registration[] {
 }
 
 function loadAttendance(): AttendanceRecord[] {
-  if (!isBrowser()) return [];
+  if (!isBrowser()) return g.scantoattend_attendance;
   try {
     const raw = localStorage.getItem(ATTENDANCE_KEY);
     if (raw) return JSON.parse(raw) as AttendanceRecord[];
@@ -83,11 +91,19 @@ function loadAttendance(): AttendanceRecord[] {
 }
 
 function persistRegistrations(data: Registration[]): void {
-  if (isBrowser()) localStorage.setItem(REGISTRATIONS_KEY, JSON.stringify(data));
+  if (!isBrowser()) {
+    g.scantoattend_registrations = data;
+    return;
+  }
+  localStorage.setItem(REGISTRATIONS_KEY, JSON.stringify(data));
 }
 
 function persistAttendance(data: AttendanceRecord[]): void {
-  if (isBrowser()) localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(data));
+  if (!isBrowser()) {
+    g.scantoattend_attendance = data;
+    return;
+  }
+  localStorage.setItem(ATTENDANCE_KEY, JSON.stringify(data));
 }
 
 // ---------------------------------------------------------------------------
@@ -120,10 +136,16 @@ export function markAttendance(
   record: Omit<AttendanceRecord, "id" | "scanned_at">
 ): { success: boolean; error?: "already_marked" | "not_registered" } {
   const registrations = loadRegistrations();
-  const found = registrations.find(
+  const foundReg = registrations.find(
     (r) => r.participant_id === record.participant_id
   );
-  if (!found) return { success: false, error: "not_registered" };
+
+  const members = loadMembers();
+  const foundMember = members.find(
+    (m) => m.member_id === record.participant_id && m.membership_status === "ACTIVE"
+  );
+
+  if (!foundReg && !foundMember) return { success: false, error: "not_registered" };
 
   const attendance = loadAttendance();
   const alreadyMarked = attendance.some(
@@ -159,3 +181,147 @@ export function generateParticipantId(): string {
   }
   return `AICSSYC26-${suffix}`;
 }
+
+// ---------------------------------------------------------------------------
+// Members Support (Phase A)
+// ---------------------------------------------------------------------------
+
+export type Member = {
+  member_id: string;
+  name: string;
+  register_no: string;
+  email: string;
+  club: string;
+  membership_status: "ACTIVE" | "INACTIVE";
+  password_hash: string;
+  salt: string;
+  created_at: string;
+};
+
+export const DEMO_MEMBER: Member = {
+  member_id: "DEMO001",
+  name: "Srijan Demo",
+  register_no: "DEMO001",
+  email: "demo@scantoattend.test",
+  club: "IEEE CS",
+  membership_status: "ACTIVE",
+  password_hash: "e9830a67cc44baa516cef17e7f3192d637e16b8035372f377e804b12f647a767fc811e2c825c171fbade03b43ed9230d1e3888481628382d6fc098e977d90670",
+  salt: "258f7000065877c1715c2b2b9152823d",
+  created_at: "2026-08-08T13:42:00Z"
+};
+
+const MEMBERS_KEY = "scantoattend_members";
+
+// Ensure global is seeded on server load
+if (typeof global !== "undefined") {
+  g.scantoattend_members = g.scantoattend_members || [];
+  if (!g.scantoattend_members.some((m: Member) => m.email === DEMO_MEMBER.email)) {
+    g.scantoattend_members.push(DEMO_MEMBER);
+  }
+}
+
+function loadMembers(): Member[] {
+  if (!isBrowser()) return g.scantoattend_members;
+  try {
+    const raw = localStorage.getItem(MEMBERS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Member[];
+      if (!parsed.some(m => m.email === DEMO_MEMBER.email)) {
+        parsed.push(DEMO_MEMBER);
+        localStorage.setItem(MEMBERS_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
+  } catch { /* corrupted */ }
+  localStorage.setItem(MEMBERS_KEY, JSON.stringify([DEMO_MEMBER]));
+  return [DEMO_MEMBER];
+}
+
+function persistMembers(data: Member[]): void {
+  if (!isBrowser()) {
+    g.scantoattend_members = data;
+    return;
+  }
+  localStorage.setItem(MEMBERS_KEY, JSON.stringify(data));
+}
+
+export function getMembers(): Member[] {
+  return loadMembers();
+}
+
+export function addMember(member: Member): void {
+  const all = loadMembers();
+  all.push(member);
+  persistMembers(all);
+}
+
+export function getMemberByEmail(email: string): Member | undefined {
+  return loadMembers().find((m) => m.email.toLowerCase() === email.toLowerCase());
+}
+
+export function getMemberById(id: string): Member | undefined {
+  return loadMembers().find((m) => m.member_id === id);
+}
+
+// ---------------------------------------------------------------------------
+// Meetings Support (Phase B)
+// ---------------------------------------------------------------------------
+
+export type Meeting = {
+  meeting_id: string;
+  meeting_name: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  venue: string;
+  venue_latitude: number;
+  venue_longitude: number;
+  allowed_radius: number;
+  passcode: string;
+  status: "UPCOMING" | "ACTIVE" | "ENDED" | "EXPIRED";
+  created_at: string;
+};
+
+const MEETINGS_KEY = "scantoattend_meetings";
+
+function loadMeetings(): Meeting[] {
+  if (!isBrowser()) return g.scantoattend_meetings;
+  try {
+    const raw = localStorage.getItem(MEETINGS_KEY);
+    if (raw) return JSON.parse(raw) as Meeting[];
+  } catch { /* corrupted */ }
+  return [];
+}
+
+function persistMeetings(data: Meeting[]): void {
+  if (!isBrowser()) {
+    g.scantoattend_meetings = data;
+    return;
+  }
+  localStorage.setItem(MEETINGS_KEY, JSON.stringify(data));
+}
+
+export function getMeetingsStore(): Meeting[] {
+  return loadMeetings();
+}
+
+export function addMeetingStore(meeting: Meeting): void {
+  const all = loadMeetings();
+  all.push(meeting);
+  persistMeetings(all);
+}
+
+export function getMeetingByIdStore(id: string): Meeting | undefined {
+  return loadMeetings().find((m) => m.meeting_id.toLowerCase() === id.toLowerCase());
+}
+
+export function updateMeetingStatusStore(id: string, status: Meeting["status"]): void {
+  const all = loadMeetings();
+  const index = all.findIndex((m) => m.meeting_id.toLowerCase() === id.toLowerCase());
+  if (index !== -1) {
+    all[index].status = status;
+    persistMeetings(all);
+  }
+}
+
+

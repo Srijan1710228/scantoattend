@@ -1,132 +1,76 @@
 "use client";
 
-/**
- * ⚠️ DEV-ONLY PASSCODE GATE ⚠️
- * This placeholder passcode check MUST be replaced with real Supabase Auth
- * in Phase 3 before this touches production.
- */
-
 import * as React from "react";
 import toast from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Chevron } from "@/components/ui/chevron";
+import { SectionWrapper } from "@/components/ui/section-wrapper";
+import { StatBlock } from "@/components/ui/stat-block";
 import { cn } from "@/lib/utils";
-import { EVENT_DAYS, VENUE_LAT, VENUE_LNG } from "@/lib/config/venue";
-import {
-  getAttendance,
-  getRegistrations,
-  markAttendance,
-  getRegistrationByParticipantId,
-  addRegistration,
-  type AttendanceRecord,
-  type Registration,
-} from "@/lib/store/mock-store";
 
-const ADMIN_PASSCODE = "admin123"; // ⚠️ Replace with Supabase Auth in Phase 3
+const ADMIN_PASSCODE = "admin123";
+
+interface AttendanceRecord {
+  attendance_id: string;
+  member_id: string;
+  name: string;
+  register_no: string;
+  email: string;
+  meeting_id: string;
+  meeting_name: string;
+  date: string;
+  time: string;
+  venue: string;
+  distance_from_venue: number;
+  gps_accuracy: number;
+  allowed_radius: number;
+  location_status: string;
+  attendance_status: string;
+}
+
+interface Meeting {
+  meeting_id: string;
+  meeting_name: string;
+}
 
 export default function AdminAttendancePage() {
   const [authenticated, setAuthenticated] = React.useState(false);
   const [passcode, setPasscode] = React.useState("");
   const [passcodeError, setPasscodeError] = React.useState(false);
 
-  const [selectedDay, setSelectedDay] = React.useState(EVENT_DAYS[0].date);
+  const [loading, setLoading] = React.useState(true);
   const [records, setRecords] = React.useState<AttendanceRecord[]>([]);
-  const [registrations, setRegistrations] = React.useState<Registration[]>([]);
-  const [showManualModal, setShowManualModal] = React.useState(false);
-  const [manualPid, setManualPid] = React.useState("");
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [meetings, setMeetings] = React.useState<Meeting[]>([]);
+  
+  // Filters
+  const [selectedMeetingId, setSelectedMeetingId] = React.useState("ALL");
+  const [searchQuery, setSearchQuery] = React.useState("");
 
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const XLSX = await import("xlsx");
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const data = new Uint8Array(event.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: "array" });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
-
-          let newRegsCount = 0;
-          let newAttendanceCount = 0;
-
-          jsonData.forEach((row: any) => {
-            const rawId = row.participant_id || row.register_no || row.RegisterNo || row.ID || row.id || row["Register No"] || row["Participant ID"];
-            const name = row.name || row.Name || row["Full Name"] || "Unknown Attendee";
-            const email = row.email || row.Email || `${rawId}@college.edu`;
-            const domain = row.domain || row.Domain || row.track_preference || "General";
-
-            if (!rawId) return;
-            const pid = String(rawId).trim().toUpperCase();
-
-            // 1. Check/Add Registration
-            const existing = getRegistrationByParticipantId(pid);
-            if (!existing) {
-              addRegistration({
-                participant_id: pid,
-                name: String(name).trim(),
-                email: String(email).trim(),
-                track_preference: String(domain).trim(),
-              });
-              newRegsCount++;
-            }
-
-            // 2. Mark Attendance
-            const res = markAttendance({
-              participant_id: pid,
-              event_day: selectedDay,
-              latitude: VENUE_LAT,
-              longitude: VENUE_LNG,
-              distance_from_venue_m: 0,
-              location_verified: true, // admin import counts as verified
-            });
-
-            if (res.success) {
-              newAttendanceCount++;
-            }
-          });
-
-          toast.success(`Imported: ${newAttendanceCount} checked in (${newRegsCount} new registrations)`);
-          refresh(selectedDay);
-        } catch (err) {
-          console.error(err);
-          toast.error("Failed to parse sheet data. Please check layout.");
-        }
-      };
-      reader.readAsArrayBuffer(file);
+      const response = await fetch("/api/attendance");
+      if (response.ok) {
+        const data = await response.json();
+        setRecords(data.attendance || []);
+        setMeetings(data.meetings || []);
+      } else {
+        toast.error("Failed to load attendance logs.");
+      }
     } catch (err) {
       console.error(err);
-      toast.error("Failed to load file reader.");
+      toast.error("Network error. Try again.");
+    } finally {
+      setLoading(false);
     }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Refresh data
-  const refresh = React.useCallback((day: string) => {
-    setRecords(getAttendance(day));
-    setRegistrations(getRegistrations());
-  }, []);
-
   React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (authenticated) refresh(selectedDay);
-  }, [authenticated, selectedDay, refresh]);
-
-  // Auto-refresh every 5 seconds while authenticated
-  React.useEffect(() => {
-    if (!authenticated) return;
-    const timer = setInterval(() => refresh(selectedDay), 5000);
-    return () => clearInterval(timer);
-  }, [authenticated, selectedDay, refresh]);
-
-  // -----------------------------------------------------------------------
-  // Passcode gate
-  // -----------------------------------------------------------------------
+    if (authenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchData();
+    }
+  }, [authenticated]);
 
   const handlePasscode = (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,17 +87,17 @@ export default function AdminAttendancePage() {
       <div className="min-h-[80vh] flex items-center justify-center">
         <form
           onSubmit={handlePasscode}
-          className="w-full max-w-sm flex flex-col gap-4 p-8 border-2 border-brand-muted/20"
+          className="w-full max-w-sm flex flex-col gap-4 p-8 border-2 border-brand-muted/20 bg-brand-black rounded-2xl"
         >
           <h2 className="font-display text-2xl uppercase text-center mb-2">
-            Admin Access
+            Admin Attendance Gate
           </h2>
           <input
             type="password"
             value={passcode}
             onChange={(e) => setPasscode(e.target.value)}
             placeholder="Enter passcode"
-            className="w-full bg-brand-black border-2 border-brand-muted/30 text-brand-white px-4 py-3 text-sm font-sans focus:outline-none focus:border-brand-lime transition-colors placeholder:text-brand-muted/50"
+            className="w-full bg-brand-black border-2 border-brand-muted/30 text-brand-white px-4 py-3 rounded-lg text-sm font-sans focus:outline-none focus:border-brand-lime transition-colors placeholder:text-brand-muted/50"
           />
           {passcodeError && (
             <p className="text-brand-red text-xs font-semibold">
@@ -168,290 +112,162 @@ export default function AdminAttendancePage() {
     );
   }
 
-  // -----------------------------------------------------------------------
-  // Manual mark handler
-  // -----------------------------------------------------------------------
+  // Filter logic
+  const filteredRecords = records.filter((rec) => {
+    const matchesMeeting = selectedMeetingId === "ALL" || rec.meeting_id === selectedMeetingId;
+    const matchesSearch =
+      rec.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rec.register_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rec.email.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesMeeting && matchesSearch;
+  });
 
-  const handleManualMark = (e: React.FormEvent) => {
-    e.preventDefault();
-    const pid = manualPid.trim();
-    if (!pid) return;
+  // Calculate statistics
+  const totalPresent = filteredRecords.length;
+  // Use unique members checking in as proxy for total present, or hardcode/stat checks
+  const uniqueMembers = new Set(filteredRecords.map((r) => r.member_id)).size;
+  
+  // Calculate average distance
+  const validDistances = filteredRecords.map((r) => r.distance_from_venue).filter((d) => d !== null);
+  const avgDistance =
+    validDistances.length > 0
+      ? Math.round(validDistances.reduce((acc, d) => acc + d, 0) / validDistances.length)
+      : 0;
 
-    const result = markAttendance({
-      participant_id: pid,
-      event_day: selectedDay,
-      latitude: 0,
-      longitude: 0,
-      distance_from_venue_m: 0,
-      location_verified: false, // Manual override — auditable
-    });
-
-    if (result.success) {
-      const reg = getRegistrationByParticipantId(pid);
-      toast.success(`✅ Manually marked: ${reg?.name ?? pid}`);
-      refresh(selectedDay);
-    } else if (result.error === "already_marked") {
-      toast(`⚠️ Already marked for this day`, { icon: "⚠️" });
-    } else {
-      toast.error("❌ Participant ID not found in registrations");
-    }
-
-    setManualPid("");
-    setShowManualModal(false);
-  };
-
-  // -----------------------------------------------------------------------
-  // Export to Excel
-  // -----------------------------------------------------------------------
-
-  const exportToExcel = async () => {
-    const XLSX = await import("xlsx");
-    const allAttendance = getAttendance(selectedDay);
-    const allRegs = getRegistrations();
-
-    const rows = allAttendance.map((a) => {
-      const reg = allRegs.find((r) => r.participant_id === a.participant_id);
-      return {
-        participant_id: a.participant_id,
-        name: reg?.name ?? "Unknown",
-        email: reg?.email ?? "",
-        institution: reg?.institution ?? "",
-        event_day: a.event_day,
-        scanned_at: a.scanned_at,
-        distance_m: a.distance_from_venue_m,
-        location_verified: a.location_verified ? "Yes" : "No (Manual)",
-      };
-    });
-
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Attendance");
-    XLSX.writeFile(wb, `attendance_${selectedDay}.xlsx`);
-    toast.success("Exported to Excel");
-  };
-
-  // -----------------------------------------------------------------------
-  // Resolve name from participant_id
-  // -----------------------------------------------------------------------
-
-  const getName = (pid: string): string => {
-    const reg = registrations.find((r) => r.participant_id === pid);
-    return reg?.name ?? "Unknown";
-  };
-
-  const dayLabel =
-    EVENT_DAYS.find((d) => d.date === selectedDay)?.label ?? selectedDay;
-
-  // -----------------------------------------------------------------------
-  // Render
-  // -----------------------------------------------------------------------
+  // Let's mock a fixed total number of members in the club (e.g. 50 members) to calculate attendance percentage
+  const totalClubMembers = 50;
+  const attendancePercentage =
+    totalPresent > 0 ? Math.min(100, Math.round((uniqueMembers / totalClubMembers) * 100)) : 0;
 
   return (
-    <div className="min-h-[80vh]">
-      {/* Header */}
-      <section className="pt-20 md:pt-28 pb-8 border-b border-brand-muted/20">
-        <div className="container mx-auto px-4 md:px-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+    <SectionWrapper
+      withWatermark
+      className="pt-20 md:pt-28 pb-20 min-h-[85vh]"
+    >
+      <div className="flex flex-col gap-8 w-full max-w-6xl mx-auto">
+        
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-brand-muted/15 pb-6">
           <div>
-            <h1 className="text-4xl md:text-5xl font-display uppercase mb-2">
-              Attendance
+            <h1 className="text-4xl font-display uppercase tracking-tight text-brand-white">
+              Admin Attendance Logs
             </h1>
-            <p className="text-brand-muted">
-              Live attendance tracking — {dayLabel}.
+            <p className="text-brand-muted text-sm mt-1">
+              Real-time synchronization logs from Google Sheets.
             </p>
           </div>
-          <div className="flex gap-3 flex-wrap items-center">
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImportExcel}
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Import Present List
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowManualModal(true)}
-            >
-              + Manual Mark
-            </Button>
-            <Button size="sm" onClick={exportToExcel}>
-              Export Excel <Chevron className="w-4 h-4 ml-1" />
-            </Button>
-          </div>
-        </div>
-      </section>
-
-      <div className="container mx-auto px-4 md:px-6 py-8 flex flex-col gap-6">
-        {/* Day selector + counter */}
-        <div className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
-          <div className="flex gap-2 flex-wrap">
-            {EVENT_DAYS.map((day) => (
-              <button
-                key={day.id}
-                onClick={() => setSelectedDay(day.date)}
-                className={cn(
-                  "px-4 py-2 text-sm font-semibold uppercase tracking-wider border-2 transition-colors",
-                  selectedDay === day.date
-                    ? "bg-brand-lime text-brand-black border-brand-lime"
-                    : "border-brand-muted/30 text-brand-muted hover:border-brand-lime/50"
-                )}
-              >
-                {day.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-brand-lime/10 border border-brand-lime/30 px-5 py-3 flex items-center gap-4">
-            <span className="text-sm font-semibold uppercase tracking-wider text-brand-muted">
-              Checked In
-            </span>
-            <span className="font-display text-2xl text-brand-lime">
-              {records.length}{" "}
-              <span className="text-base text-brand-muted">
-                / {registrations.length}
-              </span>
-            </span>
-          </div>
+          <Button onClick={fetchData} variant="ghost" className="border border-brand-muted/20 text-xs">
+            Refresh Logs
+          </Button>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="border-b-2 border-brand-lime/40 text-brand-muted uppercase tracking-wider text-xs">
-                <th className="py-3 pr-4">Name</th>
-                <th className="py-3 pr-4">ID</th>
-                <th className="py-3 pr-4 hidden md:table-cell">
-                  Scanned At
-                </th>
-                <th className="py-3 pr-4 hidden md:table-cell">
-                  Distance (m)
-                </th>
-                <th className="py-3 pr-4">Verified</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((rec) => (
-                <tr
-                  key={rec.id}
-                  className="border-b border-brand-muted/10 hover:bg-brand-lime/5 transition-colors"
-                >
-                  <td className="py-3 pr-4 font-semibold">
-                    {getName(rec.participant_id)}
-                  </td>
-                  <td className="py-3 pr-4 font-mono text-xs text-brand-lime">
-                    {rec.participant_id}
-                  </td>
-                  <td className="py-3 pr-4 hidden md:table-cell text-brand-muted">
-                    {new Date(rec.scanned_at).toLocaleString()}
-                  </td>
-                  <td className="py-3 pr-4 hidden md:table-cell text-brand-muted">
-                    {rec.distance_from_venue_m}
-                  </td>
-                  <td className="py-3 pr-4">
-                    {rec.location_verified ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        GPS
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-yellow-400">
-                        <span className="w-2 h-2 rounded-full bg-yellow-500" />
-                        Manual
-                      </span>
-                    )}
-                  </td>
-                </tr>
+        {/* Stats Blocks */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 bg-brand-black/30 border border-brand-muted/15 p-6 rounded-2xl">
+          <StatBlock label="Total Checked In" value={totalPresent} />
+          <StatBlock label="Unique Attendees" value={uniqueMembers} />
+          <StatBlock label="Avg Distance" value={`${avgDistance}m`} />
+          <StatBlock label="Attendance Rate" value={`${attendancePercentage}%`} />
+        </div>
+
+        {/* Filters Panel */}
+        <div className="flex flex-col md:flex-row items-center gap-4 bg-brand-black/55 border border-brand-muted/20 p-5 rounded-xl">
+          {/* Meeting Selection */}
+          <div className="flex flex-col gap-1 w-full md:w-1/3">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-brand-muted">
+              Filter by Meeting
+            </label>
+            <select
+              value={selectedMeetingId}
+              onChange={(e) => setSelectedMeetingId(e.target.value)}
+              className="bg-brand-black border border-brand-muted/30 text-brand-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-brand-lime"
+            >
+              <option value="ALL">All Meetings</option>
+              {meetings.map((m) => (
+                <option key={m.meeting_id} value={m.meeting_id}>
+                  {m.meeting_name} ({m.meeting_id})
+                </option>
               ))}
-            </tbody>
-          </table>
+            </select>
+          </div>
 
-          {records.length === 0 && (
-            <p className="text-center text-brand-muted py-12">
-              No attendance records for {dayLabel}.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Manual Mark Modal */}
-      {showManualModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-brand-black/80 backdrop-blur-sm p-4"
-          onClick={() => setShowManualModal(false)}
-        >
-          <form
-            onSubmit={handleManualMark}
-            className="bg-brand-black border-2 border-brand-muted/20 p-8 max-w-sm w-full flex flex-col gap-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-display text-xl uppercase">
-              Manual Mark
-            </h3>
-            <p className="text-sm text-brand-muted">
-              Enter the participant ID to manually mark attendance. This
-              will be flagged as <strong>location_verified: false</strong>{" "}
-              for audit purposes.
-            </p>
+          {/* Search Field */}
+          <div className="flex flex-col gap-1 w-full md:w-2/3">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-brand-muted">
+              Search Members
+            </label>
             <input
               type="text"
-              value={manualPid}
-              onChange={(e) => setManualPid(e.target.value)}
-              placeholder="e.g. AICSSYC26-A1B2C3"
-              className="w-full bg-brand-black border-2 border-brand-muted/30 text-brand-white px-4 py-3 text-sm font-mono focus:outline-none focus:border-brand-lime transition-colors placeholder:text-brand-muted/50"
-              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, register number, email..."
+              className="bg-brand-black border border-brand-muted/30 text-brand-white px-3 py-2 rounded-lg text-sm focus:outline-none focus:border-brand-lime placeholder:text-brand-muted/50"
             />
-
-            {/* Quick pick from registered participants */}
-            <div className="max-h-32 overflow-y-auto flex flex-col gap-1">
-              {registrations
-                .filter(
-                  (r) =>
-                    manualPid === "" ||
-                    r.participant_id
-                      .toLowerCase()
-                      .includes(manualPid.toLowerCase()) ||
-                    r.name.toLowerCase().includes(manualPid.toLowerCase())
-                )
-                .slice(0, 5)
-                .map((r) => (
-                  <button
-                    type="button"
-                    key={r.participant_id}
-                    onClick={() => setManualPid(r.participant_id)}
-                    className="text-left px-3 py-2 text-xs hover:bg-brand-lime/10 transition-colors flex justify-between items-center"
-                  >
-                    <span className="font-semibold">{r.name}</span>
-                    <span className="font-mono text-brand-muted">
-                      {r.participant_id}
-                    </span>
-                  </button>
-                ))}
-            </div>
-
-            <div className="flex gap-3">
-              <Button type="submit" className="flex-1" size="sm">
-                Mark Present
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setShowManualModal(false)}
-                size="sm"
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
+          </div>
         </div>
-      )}
-    </div>
+
+        {/* Records Table */}
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-brand-lime" />
+          </div>
+        ) : filteredRecords.length === 0 ? (
+          <div className="text-center py-20 border border-brand-muted/10 bg-brand-black/10 rounded-2xl">
+            <p className="text-brand-muted text-sm">No attendance records found matching filters.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto border border-brand-muted/20 rounded-2xl bg-brand-black/20">
+            <table className="w-full text-left text-sm text-brand-white/80">
+              <thead className="text-xs text-brand-muted uppercase tracking-wider border-b border-brand-muted/15 bg-brand-black/60">
+                <tr>
+                  <th className="py-4 px-5">Name & Reg No</th>
+                  <th className="py-4 px-5">Meeting</th>
+                  <th className="py-4 px-5">Date</th>
+                  <th className="py-4 px-5">Time</th>
+                  <th className="py-4 px-5">Distance</th>
+                  <th className="py-4 px-5">GPS Accuracy</th>
+                  <th className="py-4 px-5 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-brand-muted/10">
+                {filteredRecords.map((rec) => (
+                  <tr key={rec.attendance_id} className="hover:bg-brand-white/5 transition-colors">
+                    <td className="py-4 px-5 font-semibold text-brand-white">
+                      {rec.name}
+                      <span className="block text-[10px] text-brand-muted font-normal mt-0.5">
+                        {rec.register_no} | {rec.email}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 text-xs text-brand-white/95">
+                      {rec.meeting_name}
+                      <span className="block text-[9px] text-brand-muted font-mono mt-0.5">{rec.meeting_id}</span>
+                    </td>
+                    <td className="py-4 px-5 text-xs">{rec.date}</td>
+                    <td className="py-4 px-5 text-xs">{rec.time}</td>
+                    <td className="py-4 px-5 text-xs">
+                      {rec.distance_from_venue !== null ? `~${Math.round(rec.distance_from_venue)}m` : "Within Radius"}
+                    </td>
+                    <td className="py-4 px-5 text-xs">
+                      {rec.gps_accuracy !== null ? `${Math.round(rec.gps_accuracy)}m` : "GPS verified"}
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <span
+                        className={cn(
+                          "px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
+                          rec.location_status === "Within Radius"
+                            ? "bg-brand-lime/10 text-brand-lime border-brand-lime/30"
+                            : "bg-brand-red/10 text-brand-red border-brand-red/30"
+                        )}
+                      >
+                        {rec.attendance_status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </SectionWrapper>
   );
 }

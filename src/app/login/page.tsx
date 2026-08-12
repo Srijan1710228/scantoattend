@@ -11,15 +11,12 @@ import { SectionWrapper } from "@/components/ui/section-wrapper";
 import { Button } from "@/components/ui/button";
 import { Chevron } from "@/components/ui/chevron";
 
-const registerSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  registerNo: z.string().min(3, "Register number must be at least 3 characters"),
+const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  club: z.string().min(2, "Club name is required"),
+  password: z.string().min(1, "Password is required"),
 });
 
-type RegisterFormData = z.infer<typeof registerSchema>;
+type LoginFormData = z.infer<typeof loginSchema>;
 
 function Field({
   label,
@@ -46,26 +43,23 @@ function Field({
 const inputClass =
   "w-full bg-brand-black border border-brand-muted/30 text-brand-white px-4 py-3 rounded-lg text-sm font-sans focus:outline-none focus:border-brand-lime transition-colors placeholder:text-brand-muted/50";
 
-export default function RegisterPage() {
+export default function LoginPage() {
   const router = useRouter();
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<RegisterFormData>({
-    resolver: zodResolver(registerSchema),
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
     defaultValues: {
-      name: "",
-      registerNo: "",
       email: "",
       password: "",
-      club: "IEEE CS",
     },
   });
 
-  const onSubmit = async (data: RegisterFormData) => {
+  const onSubmit = async (data: LoginFormData) => {
     try {
-      const response = await fetch("/api/auth/register", {
+      const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -73,10 +67,10 @@ export default function RegisterPage() {
 
       const resData = await response.json();
       if (response.ok && resData.success) {
-        toast.success("Account created successfully!");
+        toast.success("Welcome back!");
         router.push("/member");
       } else {
-        toast.error(resData.error || "Failed to create account.");
+        toast.error(resData.error || "Failed to log in.");
       }
     } catch (err) {
       console.error(err);
@@ -94,32 +88,14 @@ export default function RegisterPage() {
 
         <div className="text-center">
           <h1 className="text-3xl md:text-4xl font-display uppercase tracking-tight mb-2 text-brand-white">
-            Create Member Account
+            Member Login
           </h1>
           <p className="text-brand-muted text-sm max-w-sm mx-auto">
-            Register your profile to check in to club meetings.
+            Log in to verify your identity and mark attendance.
           </p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
-          <Field label="Full Name *" error={errors.name?.message}>
-            <input
-              {...register("name")}
-              type="text"
-              className={inputClass}
-              placeholder="e.g. Srijan Prakash"
-            />
-          </Field>
-
-          <Field label="Register Number (Member ID) *" error={errors.registerNo?.message}>
-            <input
-              {...register("registerNo")}
-              type="text"
-              className={inputClass}
-              placeholder="e.g. 228"
-            />
-          </Field>
-
           <Field label="Email Address *" error={errors.email?.message}>
             <input
               {...register("email")}
@@ -138,25 +114,16 @@ export default function RegisterPage() {
             />
           </Field>
 
-          <Field label="Club Name *" error={errors.club?.message}>
-            <input
-              {...register("club")}
-              type="text"
-              className={inputClass}
-              placeholder="e.g. IEEE CS"
-            />
-          </Field>
-
           <Button type="submit" className="w-full mt-4" disabled={isSubmitting}>
-            {isSubmitting ? "Creating Account..." : "Create Account"}
+            {isSubmitting ? "Logging in..." : "Log In"}
             <Chevron className="w-4 h-4 ml-1" />
           </Button>
         </form>
 
         <div className="text-center text-xs text-brand-muted border-t border-brand-muted/15 pt-4">
-          Already have an account?{" "}
-          <Link href="/login" className="text-brand-lime hover:underline font-semibold uppercase">
-            Login here
+          Need a member account?{" "}
+          <Link href="/register" className="text-brand-lime hover:underline font-semibold uppercase">
+            Register here
           </Link>
         </div>
       </div>
