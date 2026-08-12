@@ -202,11 +202,11 @@ export const DEMO_MEMBER: Member = {
   member_id: "DEMO001",
   name: "Srijan Demo",
   register_no: "DEMO001",
-  email: "demo@scantoattend.test",
+  email: "qwerty@gmail.com",
   club: "IEEE CS",
   membership_status: "ACTIVE",
-  password_hash: "e9830a67cc44baa516cef17e7f3192d637e16b8035372f377e804b12f647a767fc811e2c825c171fbade03b43ed9230d1e3888481628382d6fc098e977d90670",
-  salt: "258f7000065877c1715c2b2b9152823d",
+  password_hash: "1fb18a6a8f93e606bcd993be758f7e03c63acdb1e8f10c1b28c10ad90a50d0171de48164ddaeffb33b5581bc9e5acb8cd0f4e78c5750752c7ef65ff60dd8fe64",
+  salt: "5533b63cd8170976f07892cfcf81d54f",
   created_at: "2026-08-08T13:42:00Z"
 };
 
