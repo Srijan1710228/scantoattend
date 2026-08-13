@@ -45,6 +45,8 @@ const inputClass =
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const redirect = searchParams?.get("redirect") || "/member";
   const {
     register,
     handleSubmit,
@@ -68,7 +70,7 @@ export default function LoginPage() {
       const resData = await response.json();
       if (response.ok && resData.success) {
         toast.success("Welcome back!");
-        router.push("/member");
+        router.push(redirect);
       } else {
         toast.error(resData.error || "Failed to log in.");
       }

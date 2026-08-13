@@ -24,16 +24,17 @@ function isGoogleConfigured(): boolean {
 // ---------------------------------------------------------------------------
 
 export async function dbGetMembers(): Promise<Member[]> {
+  const localMembers = getMembers();
+
   if (!isGoogleConfigured()) {
-    return getMembers();
+    return localMembers;
   }
 
   try {
     const rows = await getRows("Members");
-    if (rows.length <= 1) return []; // Only header or empty
+    if (rows.length <= 1) return localMembers;
     
-    // Skip header row
-    return rows.slice(1).map((row) => ({
+    const sheetMembers = rows.slice(1).map((row) => ({
       member_id: row[0],
       name: row[1],
       register_no: row[2],
@@ -44,9 +45,19 @@ export async function dbGetMembers(): Promise<Member[]> {
       salt: row[7],
       created_at: row[8],
     }));
+
+    const mergedMap = new Map<string, Member>();
+    sheetMembers.forEach((m) => {
+      mergedMap.set(m.member_id, m);
+    });
+    localMembers.forEach((m) => {
+      mergedMap.set(m.member_id, m);
+    });
+
+    return Array.from(mergedMap.values());
   } catch (err) {
     console.warn("Falling back to mock-store for getMembers:", err);
-    return getMembers();
+    return localMembers;
   }
 }
 
@@ -88,15 +99,17 @@ export async function dbGetMemberById(id: string): Promise<Member | undefined> {
 // ---------------------------------------------------------------------------
 
 export async function dbGetMeetings(): Promise<Meeting[]> {
+  const localMeetings = getMeetingsStore();
+
   if (!isGoogleConfigured()) {
-    return getMeetingsStore();
+    return localMeetings;
   }
 
   try {
     const rows = await getRows("Meetings");
-    if (rows.length <= 1) return []; // Header only
+    if (rows.length <= 1) return localMeetings;
     
-    return rows.slice(1).map((row) => ({
+    const sheetMeetings = rows.slice(1).map((row) => ({
       meeting_id: row[0],
       meeting_name: row[1],
       date: row[2],
@@ -110,9 +123,19 @@ export async function dbGetMeetings(): Promise<Meeting[]> {
       created_at: row[10],
       passcode: row[11] || "",
     }));
+
+    const mergedMap = new Map<string, Meeting>();
+    sheetMeetings.forEach((m) => {
+      mergedMap.set(m.meeting_id.toLowerCase(), m);
+    });
+    localMeetings.forEach((m) => {
+      mergedMap.set(m.meeting_id.toLowerCase(), m);
+    });
+
+    return Array.from(mergedMap.values());
   } catch (err) {
     console.warn("Falling back to mock-store for getMeetings:", err);
-    return getMeetingsStore();
+    return localMeetings;
   }
 }
 
@@ -200,69 +223,81 @@ export type SheetAttendanceRecord = {
 };
 
 export async function dbGetAttendance(meetingId?: string): Promise<SheetAttendanceRecord[]> {
+  const localRecs = getAttendance();
+  const members = getMembers();
+  const meetings = getMeetingsStore();
+
+  const localMapped = localRecs.map((rec) => {
+    const member = members.find((m) => m.member_id === rec.participant_id);
+    const meeting = meetings.find((meet) => meet.meeting_id === rec.session_id);
+    return {
+      attendance_id: rec.id,
+      member_id: rec.participant_id,
+      name: member?.name || "Unknown",
+      register_no: member?.register_no || "Unknown",
+      email: member?.email || "Unknown",
+      meeting_id: rec.session_id || "Unknown",
+      meeting_name: meeting?.meeting_name || "Unknown",
+      date: rec.event_day,
+      time: new Date(rec.scanned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      venue: meeting?.venue || "Unknown",
+      distance_from_venue: rec.distance_from_venue_m,
+      gps_accuracy: 10,
+      allowed_radius: meeting?.allowed_radius || 200,
+      location_status: rec.location_verified ? "Within Radius" : "Outside Radius",
+      attendance_status: "Present",
+    };
+  });
+
   if (!isGoogleConfigured()) {
-    // Map from local store
-    const localRecs = getAttendance();
-    const members = getMembers();
-    const meetings = getMeetingsStore();
-
-    const mapped = localRecs.map((rec) => {
-      const member = members.find((m) => m.member_id === rec.participant_id);
-      const meeting = meetings.find((meet) => meet.meeting_id === rec.session_id);
-      return {
-        attendance_id: rec.id,
-        member_id: rec.participant_id,
-        name: member?.name || "Unknown",
-        register_no: member?.register_no || "Unknown",
-        email: member?.email || "Unknown",
-        meeting_id: rec.session_id || "Unknown",
-        meeting_name: meeting?.meeting_name || "Unknown",
-        date: rec.event_day,
-        time: new Date(rec.scanned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        venue: meeting?.venue || "Unknown",
-        distance_from_venue: rec.distance_from_venue_m,
-        gps_accuracy: 10,
-        allowed_radius: meeting?.allowed_radius || 200,
-        location_status: rec.location_verified ? "Within Radius" : "Outside Radius",
-        attendance_status: "Present",
-      };
-    });
-
     if (meetingId) {
-      return mapped.filter((m) => m.meeting_id.toLowerCase() === meetingId.toLowerCase());
+      return localMapped.filter((m) => m.meeting_id.toLowerCase() === meetingId.toLowerCase());
     }
-    return mapped;
+    return localMapped;
   }
 
   try {
     const rows = await getRows("Attendance");
-    if (rows.length <= 1) return []; // Header only
-    
-    const mapped = rows.slice(1).map((row) => ({
-      attendance_id: row[0],
-      member_id: row[1],
-      name: row[2],
-      register_no: row[3],
-      email: row[4],
-      meeting_id: row[5],
-      meeting_name: row[6],
-      date: row[7],
-      time: row[8],
-      venue: row[9],
-      distance_from_venue: Number(row[10]),
-      gps_accuracy: Number(row[11]),
-      allowed_radius: Number(row[12]),
-      location_status: row[13],
-      attendance_status: row[14],
-    }));
-
-    if (meetingId) {
-      return mapped.filter((m) => m.meeting_id.toLowerCase() === meetingId.toLowerCase());
+    let sheetMapped: SheetAttendanceRecord[] = [];
+    if (rows.length > 1) {
+      sheetMapped = rows.slice(1).map((row) => ({
+        attendance_id: row[0],
+        member_id: row[1],
+        name: row[2],
+        register_no: row[3],
+        email: row[4],
+        meeting_id: row[5],
+        meeting_name: row[6],
+        date: row[7],
+        time: row[8],
+        venue: row[9],
+        distance_from_venue: Number(row[10]),
+        gps_accuracy: Number(row[11]),
+        allowed_radius: Number(row[12]),
+        location_status: row[13],
+        attendance_status: row[14],
+      }));
     }
-    return mapped;
+
+    const mergedMap = new Map<string, SheetAttendanceRecord>();
+    sheetMapped.forEach((r) => {
+      mergedMap.set(r.attendance_id, r);
+    });
+    localMapped.forEach((r) => {
+      mergedMap.set(r.attendance_id, r);
+    });
+
+    const merged = Array.from(mergedMap.values());
+    if (meetingId) {
+      return merged.filter((m) => m.meeting_id.toLowerCase() === meetingId.toLowerCase());
+    }
+    return merged;
   } catch (err) {
     console.error("Failed to read attendance from Google Sheets:", err);
-    return [];
+    if (meetingId) {
+      return localMapped.filter((m) => m.meeting_id.toLowerCase() === meetingId.toLowerCase());
+    }
+    return localMapped;
   }
 }
 

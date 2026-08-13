@@ -1,9 +1,14 @@
 import { dbAddMeeting, dbGetMeetings } from "@/lib/db";
+import { createMeetingToken } from "@/lib/utils/crypto-auth";
 
 export async function GET() {
   try {
     const meetings = await dbGetMeetings();
-    return Response.json({ success: true, meetings });
+    const meetingsWithTokens = meetings.map(m => ({
+      ...m,
+      join_token: createMeetingToken({ meetingId: m.meeting_id })
+    }));
+    return Response.json({ success: true, meetings: meetingsWithTokens });
   } catch (err) {
     console.error("Meetings GET error:", err);
     return Response.json(
@@ -64,7 +69,10 @@ export async function POST(request: Request) {
 
     return Response.json({
       success: true,
-      meeting: newMeeting,
+      meeting: {
+        ...newMeeting,
+        join_token: createMeetingToken({ meetingId: newMeeting.meeting_id })
+      },
     });
   } catch (err) {
     console.error("Meetings POST error:", err);

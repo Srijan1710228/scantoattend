@@ -1,5 +1,5 @@
 import { dbGetMeetingById, dbGetMemberById } from "@/lib/db";
-import { verifySessionToken } from "@/lib/utils/crypto-auth";
+import { verifySessionToken, verifyMeetingToken } from "@/lib/utils/crypto-auth";
 import { cookies } from "next/headers";
 
 export async function POST(request: Request) {
@@ -31,16 +31,34 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { meetId, passcode } = body;
+    const { meetId, passcode, token } = body;
 
-    if (!meetId || !passcode) {
-      return Response.json(
-        { error: "Meet ID and passcode are required." },
-        { status: 400 }
-      );
+    let meeting;
+    if (token) {
+      const { valid: tokenValid, payload: tokenPayload } = verifyMeetingToken(token);
+      if (!tokenValid || !tokenPayload) {
+        return Response.json(
+          { error: "Invalid or expired QR code meeting link." },
+          { status: 400 }
+        );
+      }
+      meeting = await dbGetMeetingById(tokenPayload.meetingId);
+    } else {
+      if (!meetId || !passcode) {
+        return Response.json(
+          { error: "Meet ID and passcode are required." },
+          { status: 400 }
+        );
+      }
+      meeting = await dbGetMeetingById(meetId);
+      if (meeting && String(meeting.passcode) !== String(passcode).trim()) {
+        return Response.json(
+          { error: "Incorrect passcode. Please try again." },
+          { status: 400 }
+        );
+      }
     }
 
-    const meeting = await dbGetMeetingById(meetId);
     if (!meeting) {
       return Response.json(
         { error: "Meeting not found. Verify your Meet ID." },
@@ -51,13 +69,6 @@ export async function POST(request: Request) {
     if (meeting.status !== "ACTIVE") {
       return Response.json(
         { error: `This meeting is currently ${meeting.status.toLowerCase()}.` },
-        { status: 400 }
-      );
-    }
-
-    if (String(meeting.passcode) !== String(passcode).trim()) {
-      return Response.json(
-        { error: "Incorrect passcode. Please try again." },
         { status: 400 }
       );
     }

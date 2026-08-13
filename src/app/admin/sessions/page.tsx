@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Chevron } from "@/components/ui/chevron";
 import { SectionWrapper } from "@/components/ui/section-wrapper";
 import { cn } from "@/lib/utils";
+import { QRCodeCanvas } from "qrcode.react";
 
 const ADMIN_PASSCODE = "admin123";
 
@@ -43,6 +44,30 @@ export default function AdminSessionsPage() {
 
   // Active Meeting State
   const [meeting, setMeeting] = React.useState<MeetingData | null>(null);
+  const [showQR, setShowQR] = React.useState(false);
+
+  const joinUrl = React.useMemo(() => {
+    if (typeof window === "undefined" || !meeting) return "";
+    const origin = window.location.origin;
+    const token = (meeting as MeetingData & { join_token?: string }).join_token || "";
+    return `${origin}/join/${token}`;
+  }, [meeting]);
+
+  const downloadQR = () => {
+    const canvas = document.getElementById("meeting-qr-canvas") as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const url = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `meeting-qr-${meeting?.meeting_id}.png`;
+    link.href = url;
+    link.click();
+    toast.success("QR code downloaded!");
+  };
+
+  const copyJoinLink = () => {
+    navigator.clipboard.writeText(joinUrl);
+    toast.success("Join link copied to clipboard!");
+  };
 
   const handlePasscode = (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,6 +146,7 @@ export default function AdminSessionsPage() {
 
   const handleReset = () => {
     setMeeting(null);
+    setShowQR(false);
     setMeetingName("");
     setDate("");
     setStartTime("");
@@ -230,8 +256,45 @@ export default function AdminSessionsPage() {
                   <p className="font-semibold text-brand-white text-sm">{meeting.end_time}</p>
                 </div>
               </div>
+              <Button onClick={() => setShowQR(true)} className="mt-4 w-full">
+                Generate QR
+              </Button>
             </div>
           </div>
+
+          {showQR && (
+            <div className="border-t border-brand-muted/15 pt-6 flex flex-col items-center gap-5 bg-brand-black/25 p-6 rounded-xl border border-brand-muted/10">
+              <h3 className="font-display text-xl uppercase tracking-wider text-brand-white">Meeting QR</h3>
+              
+              <div className="bg-white p-4 rounded-xl border border-brand-muted/30 flex items-center justify-center">
+                <QRCodeCanvas
+                  id="meeting-qr-canvas"
+                  value={joinUrl}
+                  size={200}
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
+
+              <div className="text-center flex flex-col gap-1">
+                <p className="text-brand-white font-bold text-lg">{meeting.meeting_name}</p>
+                <p className="text-brand-lime font-mono text-sm">ID: {meeting.meeting_id}</p>
+                <p className="text-brand-muted text-xs uppercase font-semibold">
+                  {meeting.date} | {meeting.start_time} - {meeting.end_time}
+                </p>
+                <p className="text-brand-muted text-xs">{meeting.venue}</p>
+              </div>
+
+              <div className="flex gap-4 w-full">
+                <Button onClick={downloadQR} className="flex-1 text-xs">
+                  Download QR
+                </Button>
+                <Button onClick={copyJoinLink} variant="ghost" className="flex-1 text-xs border border-brand-muted/20">
+                  Copy Join Link
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="flex flex-col md:flex-row gap-4 border-t border-brand-muted/15 pt-6">

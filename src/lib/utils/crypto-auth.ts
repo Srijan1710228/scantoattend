@@ -104,3 +104,41 @@ export function verifyLocationToken(token: string): {
   }
 }
 
+export interface MeetingJoinPayload {
+  meetingId: string;
+}
+
+export function createMeetingToken(payload: MeetingJoinPayload): string {
+  const serialized = JSON.stringify(payload);
+  const payloadBase64 = Buffer.from(serialized).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", SECRET)
+    .update(payloadBase64)
+    .digest("hex");
+  return `${payloadBase64}.${signature}`;
+}
+
+export function verifyMeetingToken(token: string): {
+  valid: boolean;
+  payload?: MeetingJoinPayload;
+} {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 2) return { valid: false };
+
+    const [payloadBase64, signature] = parts;
+    const expectedSignature = crypto
+      .createHmac("sha256", SECRET)
+      .update(payloadBase64)
+      .digest("hex");
+
+    if (signature !== expectedSignature) return { valid: false };
+
+    const decoded = Buffer.from(payloadBase64, "base64url").toString("utf8");
+    const payload = JSON.parse(decoded) as MeetingJoinPayload;
+    return { valid: true, payload };
+  } catch {
+    return { valid: false };
+  }
+}
+
