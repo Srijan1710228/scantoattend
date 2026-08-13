@@ -9,9 +9,39 @@ import {
   type Member,
   type Meeting,
 } from "@/lib/store/mock-store";
+import fs from "fs";
+import path from "path";
 
 // Helper to determine if Google Sheets config is present
 function isGoogleConfigured(): boolean {
+  if (
+    !process.env.GOOGLE_SHEETS_SPREADSHEET_ID ||
+    !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+    !process.env.GOOGLE_PRIVATE_KEY
+  ) {
+    try {
+      const envPath = path.resolve(process.cwd(), ".env.local");
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, "utf8");
+        content.split(/\r?\n/).forEach((line: string) => {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) return;
+          const firstEq = trimmed.indexOf("=");
+          if (firstEq === -1) return;
+          const key = trimmed.substring(0, firstEq).trim();
+          let val = trimmed.substring(firstEq + 1).trim();
+          if (
+            (val.startsWith('"') && val.endsWith('"')) ||
+            (val.startsWith("'") && val.endsWith("'"))
+          ) {
+            val = val.substring(1, val.length - 1);
+          }
+          process.env[key] = val;
+        });
+      }
+    } catch {}
+  }
+
   return !!(
     process.env.GOOGLE_SHEETS_SPREADSHEET_ID &&
     process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
@@ -80,6 +110,7 @@ export async function dbAddMember(member: Member): Promise<void> {
       ]);
     } catch (err) {
       console.error("Failed to append member to Google Sheets:", err);
+      throw err;
     }
   }
 }
@@ -160,6 +191,7 @@ export async function dbAddMeeting(meeting: Meeting): Promise<void> {
       ]);
     } catch (err) {
       console.error("Failed to append meeting to Google Sheets:", err);
+      throw err;
     }
   }
 }
@@ -335,6 +367,7 @@ export async function dbAddAttendance(rec: SheetAttendanceRecord): Promise<void>
       ]);
     } catch (err) {
       console.error("Failed to append attendance to Google Sheets:", err);
+      throw err;
     }
   }
 }
